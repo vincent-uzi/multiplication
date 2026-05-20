@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 const TABLES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const TIME_LIMIT = 15;
 
 function getRandomQ() {
   const a = TABLES[Math.floor(Math.random() * TABLES.length)];
@@ -20,15 +21,48 @@ const stars = Array.from({ length: 18 }, (_, i) => ({
 export default function App() {
   const [question, setQuestion] = useState(getRandomQ);
   const [input, setInput] = useState("");
-  const [status, setStatus] = useState(null); // null | "correct" | "wrong"
+  const [status, setStatus] = useState(null); // null | "correct" | "wrong" | "timeout"
   const [streak, setStreak] = useState(0);
-  const [best, setBest] = useState(0);
+  const [best, setBest] = useState(() => parseInt(localStorage.getItem('best') || '0', 10));
   const [shake, setShake] = useState(false);
   const [bounce, setBounce] = useState(false);
   const [particles, setParticles] = useState([]);
+  const [timeLeft, setTimeLeft] = useState(TIME_LIMIT);
   const inputRef = useRef(null);
+  const timerRef = useRef(null);
 
   useEffect(() => { inputRef.current?.focus(); }, [question]);
+
+  // Timer countdown
+  useEffect(() => {
+    if (status !== null) return; // pause timer during feedback
+
+    setTimeLeft(TIME_LIMIT);
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current);
+          handleTimeout();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timerRef.current);
+  }, [question, status === null ? null : 'paused']);
+
+  function handleTimeout() {
+    setStatus("timeout");
+    setShake(true);
+    setStreak(0);
+    setTimeout(() => {
+      setShake(false);
+      setStatus(null);
+      setInput("");
+      setQuestion(getRandomQ());
+    }, 1200);
+  }
 
   function spawnParticles() {
     const items = Array.from({ length: 12 }, (_, i) => ({
@@ -46,6 +80,7 @@ export default function App() {
   function validate() {
     const val = parseInt(input, 10);
     if (isNaN(val)) return;
+    clearInterval(timerRef.current);
 
     if (val === question.answer) {
       setStatus("correct");
@@ -53,7 +88,10 @@ export default function App() {
       spawnParticles();
       const newStreak = streak + 1;
       setStreak(newStreak);
-      if (newStreak > best) setBest(newStreak);
+      if (newStreak > best) {
+        setBest(newStreak);
+        localStorage.setItem('best', newStreak);
+      }
       setTimeout(() => {
         setBounce(false);
         setStatus(null);
@@ -77,6 +115,13 @@ export default function App() {
     streak >= 5  ? "#f7c59f" :
     streak >= 3  ? "#ffe082" : "#ffffff";
 
+  // Timer color: green → orange → red
+  const timerColor =
+    timeLeft <= 3  ? "#ff4444" :
+    timeLeft <= 7  ? "#ff9800" : "#69ff9c";
+
+  const timerPct = (timeLeft / TIME_LIMIT) * 100;
+
   return (
     <div style={{
       minHeight: "100vh",
@@ -98,11 +143,11 @@ export default function App() {
         @keyframes pop { 0%{opacity:1;transform:translate(0,0) scale(1)} 100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(0)} }
         @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,200,50,.4)} 50%{box-shadow:0 0 0 14px rgba(255,200,50,0)} }
         @keyframes slideIn { from{opacity:0;transform:translateY(-20px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes correctFlash { 0%{background:rgba(100,255,150,.2)} 100%{background:transparent} }
+        @keyframes timerPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
         .input-field:focus { outline:none; }
       `}</style>
 
-      {/* Stars background */}
+      {/* Stars */}
       {stars.map(s => (
         <div key={s.id} style={{
           position: "absolute", left: s.left, top: s.top,
@@ -126,7 +171,7 @@ export default function App() {
       ))}
 
       {/* Title */}
-      <div style={{ textAlign: "center", marginBottom: "32px", animation: "slideIn .5s ease" }}>
+      <div style={{ textAlign: "center", marginBottom: "24px", animation: "slideIn .5s ease" }}>
         <div style={{ fontSize: "44px", marginBottom: "4px" }}>🧮</div>
         <h1 style={{
           color: "#ffe082", fontSize: "clamp(28px, 6vw, 42px)",
@@ -136,11 +181,8 @@ export default function App() {
         }}>Les Tables de Multiplication</h1>
       </div>
 
-      {/* Streak */}
-      <div style={{
-        display: "flex", gap: "16px", marginBottom: "28px",
-        fontFamily: "'Nunito', sans-serif",
-      }}>
+      {/* Streak + Record */}
+      <div style={{ display: "flex", gap: "16px", marginBottom: "20px", fontFamily: "'Nunito', sans-serif" }}>
         <div style={{
           background: "rgba(255,255,255,.1)", borderRadius: "16px",
           padding: "10px 22px", textAlign: "center", backdropFilter: "blur(8px)",
@@ -163,15 +205,45 @@ export default function App() {
         </div>
       </div>
 
+      {/* Timer */}
+      <div style={{ width: "100%", maxWidth: "380px", marginBottom: "16px" }}>
+        {/* Barre de progression */}
+        <div style={{
+          width: "100%", height: "8px",
+          background: "rgba(255,255,255,.1)",
+          borderRadius: "999px", overflow: "hidden",
+          marginBottom: "6px",
+        }}>
+          <div style={{
+            height: "100%",
+            width: `${timerPct}%`,
+            background: timerColor,
+            borderRadius: "999px",
+            transition: "width 1s linear, background .3s",
+          }} />
+        </div>
+        {/* Chiffre */}
+        <div style={{
+          textAlign: "right",
+          fontFamily: "'Fredoka One', cursive",
+          fontSize: "22px",
+          color: timerColor,
+          transition: "color .3s",
+          animation: timeLeft <= 3 ? "timerPulse .5s infinite" : "none",
+        }}>
+          {timeLeft}s ⏱
+        </div>
+      </div>
+
       {/* Card */}
       <div style={{
         background: status === "correct"
           ? "rgba(100,255,150,.12)"
-          : status === "wrong"
+          : (status === "wrong" || status === "timeout")
           ? "rgba(255,80,80,.12)"
           : "rgba(255,255,255,.08)",
         backdropFilter: "blur(16px)",
-        border: `2px solid ${status === "correct" ? "rgba(100,255,150,.4)" : status === "wrong" ? "rgba(255,80,80,.4)" : "rgba(255,255,255,.15)"}`,
+        border: `2px solid ${status === "correct" ? "rgba(100,255,150,.4)" : (status === "wrong" || status === "timeout") ? "rgba(255,80,80,.4)" : "rgba(255,255,255,.15)"}`,
         borderRadius: "28px",
         padding: "40px 48px",
         textAlign: "center",
@@ -180,8 +252,6 @@ export default function App() {
         transition: "background .3s, border-color .3s",
         position: "relative",
       }}>
-
-        {/* Question */}
         <div style={{
           fontSize: "clamp(48px, 12vw, 72px)",
           color: "white",
@@ -193,7 +263,6 @@ export default function App() {
           {question.a} × {question.b} = ?
         </div>
 
-        {/* Input */}
         <input
           ref={inputRef}
           className="input-field"
@@ -208,7 +277,7 @@ export default function App() {
             fontFamily: "'Fredoka One', cursive",
             textAlign: "center",
             background: "rgba(255,255,255,.1)",
-            border: `2px solid ${status === "correct" ? "rgba(100,255,150,.6)" : status === "wrong" ? "rgba(255,100,100,.6)" : "rgba(255,255,255,.25)"}`,
+            border: `2px solid ${status === "correct" ? "rgba(100,255,150,.6)" : (status === "wrong" || status === "timeout") ? "rgba(255,100,100,.6)" : "rgba(255,255,255,.25)"}`,
             borderRadius: "16px",
             padding: "14px",
             color: "white",
@@ -219,7 +288,6 @@ export default function App() {
           }}
         />
 
-        {/* Button */}
         <button
           onClick={validate}
           style={{
@@ -242,7 +310,6 @@ export default function App() {
           ✅ Valider
         </button>
 
-        {/* Feedback */}
         {status && (
           <div style={{
             marginTop: "18px",
@@ -254,12 +321,13 @@ export default function App() {
           }}>
             {status === "correct"
               ? ["Super ! 🎉", "Bravo ! ⭐", "Excellent ! 🌟", "Parfait ! 🏆"][streak % 4]
+              : status === "timeout"
+              ? `Trop lent ! C'était ${question.answer} ⏱`
               : "Réessaie ! 💪"}
           </div>
         )}
       </div>
 
-      {/* Encouragement */}
       {streak >= 3 && (
         <div style={{
           marginTop: "20px",
