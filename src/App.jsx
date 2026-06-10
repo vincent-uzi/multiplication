@@ -1,11 +1,37 @@
 import { useState, useEffect, useRef } from "react";
 
-const TABLES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const TABLES = [2, 3, 4, 5, 6, 7, 8, 9, 10];
 const TIME_LIMIT = 15;
 
+const EASY = new Set([2, 5, 10]);
+function baseDifficulty(a, b) {
+  const easy = EASY.has(a) || EASY.has(b);
+  return easy ? 1 : Math.max(a, b);
+}
+
+const BASE_POOL = [];
+for (const a of TABLES) {
+  for (const b of TABLES) {
+    const w = baseDifficulty(a, b);
+    for (let i = 0; i < w; i++) BASE_POOL.push([a, b]);
+  }
+}
+
+const errorBoost = new Map();
+
+function recordError(a, b) {
+  const key = `${Math.min(a,b)},${Math.max(a,b)}`;
+  errorBoost.set(key, (errorBoost.get(key) ?? 0) + 1);
+}
+
 function getRandomQ() {
-  const a = TABLES[Math.floor(Math.random() * TABLES.length)];
-  const b = TABLES[Math.floor(Math.random() * TABLES.length)];
+  // Construire un pool augmenté avec les erreurs récentes
+  const pool = [...BASE_POOL];
+  for (const [key, count] of errorBoost.entries()) {
+    const [a, b] = key.split(",").map(Number);
+    for (let i = 0; i < count * 3; i++) pool.push([a, b]);
+  }
+  const [a, b] = pool[Math.floor(Math.random() * pool.length)];
   return { a, b, answer: a * b };
 }
 
@@ -101,6 +127,7 @@ export default function App() {
         setQuestion(getRandomQ());
       }, 1000);
     } else {
+      recordError(question.a, question.b);
       setStatus("wrong");
       setShake(true);
       setStreak(0);
